@@ -566,14 +566,15 @@
       dataAutomation: [],
     },
     preferredLocation: {
-      labels: ["preferred location", "preferred work location", "desired location", "work location preference"],
+      labels: ["preferred location", "preferred work location", "desired location", "work location preference", "work location", "job location", "location"],
       attributes: [
         "preferredlocation", "preferred_location", "desiredlocation",
         "desired_location", "worklocation", "work_location",
-        "locationpreference", "location_preference"
+        "locationpreference", "location_preference", "joblocation", "job_location",
+        "preferred_work_location"
       ],
       autocomplete: [],
-      dataAutomation: [],
+      dataAutomation: ["workLocation", "preferredLocation", "locationPreference"],
     },
     previousCompany: {
       labels: ["previous company", "last company", "previous employer", "last employer"],
@@ -1031,50 +1032,69 @@
   function setFieldValue(input, value) {
     if (!value) return false;
 
-
-
     const tag = input.tagName.toLowerCase();
     const type = (input.getAttribute("type") || "text").toLowerCase();
 
-
-
     // Skip hidden, submit, button, file fields
-    if (["hidden", "submit", "file", "image"].includes(type)) return false;
-
-
+    if (["hidden", "submit", "file", "image", "reset"].includes(type)) return false;
 
     if (tag === "button") {
-      return false; // Custom ATS dropdowns are detected, but not auto-selected yet.
+      return false; // Custom ATS dropdown buttons are handled separately if applicable
     }
-
-
 
     if (tag === "select") {
       return setSelectValue(input, value);
     }
 
+    if (type === "radio") {
+      const valLower = String(value).toLowerCase().trim();
+      const inputVal = (input.value || "").toLowerCase().trim();
+      const inputId = (input.id || "").toLowerCase().trim();
+      const parentText = (input.parentElement?.textContent || "").toLowerCase().trim();
 
-
-    if (type === "checkbox" || type === "radio") {
-      return false; // Skip for now – these need special handling
+      if (inputVal === valLower || inputId.includes(valLower) || parentText.includes(valLower)) {
+        const checkedSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "checked")?.set;
+        if (checkedSetter) {
+          checkedSetter.call(input, true);
+        } else {
+          input.checked = true;
+        }
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        input.dispatchEvent(new Event("click", { bubbles: true }));
+        return true;
+      }
+      return false;
     }
 
-
+    if (type === "checkbox") {
+      const isTrue = ["true", "yes", "1", "on"].includes(String(value).toLowerCase().trim());
+      if (isTrue && !input.checked) {
+        const checkedSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "checked")?.set;
+        if (checkedSetter) {
+          checkedSetter.call(input, true);
+        } else {
+          input.checked = true;
+        }
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        input.dispatchEvent(new Event("click", { bubbles: true }));
+        return true;
+      }
+      return false;
+    }
 
     // Text-like input or textarea
-    const nativeInputValueSetter =
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
-      || Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+    let nativeSetter;
+    if (tag === "textarea") {
+      nativeSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+    } else {
+      nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    }
 
-
-
-    if (nativeInputValueSetter) {
-      nativeInputValueSetter.call(input, value);
+    if (nativeSetter) {
+      nativeSetter.call(input, value);
     } else {
       input.value = value;
     }
-
-
 
     // Dispatch events in the right order to trigger React/Vue/Angular handlers
     input.dispatchEvent(new Event("focus", { bubbles: true }));
@@ -1082,43 +1102,34 @@
     input.dispatchEvent(new Event("change", { bubbles: true }));
     input.dispatchEvent(new Event("blur", { bubbles: true }));
 
-
-
     // Also dispatch keyboard events for frameworks that listen to those
     input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true }));
     input.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
 
-
-
     return true;
   }
 
-
-
   function setSelectValue(select, value) {
     const options = Array.from(select.options);
-    const valueLower = value.toLowerCase().trim();
-
-
+    const valueLower = String(value).toLowerCase().trim();
 
     // Try exact match first
-    let match = options.find(o => o.value.toLowerCase() === valueLower || o.text.toLowerCase().trim() === valueLower);
-
-
+    let match = options.find(o => o.value.toLowerCase().trim() === valueLower || o.text.toLowerCase().trim() === valueLower);
 
     // Try contains match
     if (!match) {
       match = options.find(o => o.text.toLowerCase().includes(valueLower) || valueLower.includes(o.text.toLowerCase().trim()));
     }
 
-
-
-    // Try fuzzy for countries (US, USA, United States, etc.)
+    // Try fuzzy for countries and regions
     if (!match) {
       const fuzzyMap = {
         "united states": ["us", "usa", "united states of america", "u.s.", "u.s.a."],
         "united kingdom": ["uk", "gb", "great britain", "u.k."],
         "india": ["in", "ind"],
+        "canada": ["ca", "can"],
+        "australia": ["au", "aus"],
+        "germany": ["de", "deu", "deutschland"],
       };
       for (const [canonical, aliases] of Object.entries(fuzzyMap)) {
         if (aliases.includes(valueLower) || valueLower === canonical) {
@@ -1132,16 +1143,17 @@
       }
     }
 
-
-
     if (match) {
-      select.value = match.value;
+      const selectSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+      if (selectSetter) {
+        selectSetter.call(select, match.value);
+      } else {
+        select.value = match.value;
+      }
       select.dispatchEvent(new Event("change", { bubbles: true }));
       select.dispatchEvent(new Event("input", { bubbles: true }));
       return true;
     }
-
-
 
     return false;
   }
