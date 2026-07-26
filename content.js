@@ -1248,6 +1248,161 @@
 
 
   // =========================================================================
+  // WORKDAY / ATS CUSTOM COMBOBOX SELECTOR
+  // =========================================================================
+  async function fillCustomCombobox(buttonEl, value) {
+    if (!buttonEl || !value) return false;
+    try {
+      buttonEl.click();
+      buttonEl.dispatchEvent(new Event("focus", { bubbles: true }));
+      buttonEl.dispatchEvent(new Event("mousedown", { bubbles: true }));
+      
+      await new Promise(r => setTimeout(r, 250));
+
+      const valLower = String(value).toLowerCase().trim();
+      const options = Array.from(document.querySelectorAll('[role="option"], [role="treeitem"], .select-option, li[data-value]'));
+      
+      const match = options.find(opt => {
+        const text = (opt.textContent || "").toLowerCase().trim();
+        return text.includes(valLower) || valLower.includes(text);
+      });
+
+      if (match) {
+        match.click();
+        match.dispatchEvent(new Event("mouseup", { bubbles: true }));
+        return true;
+      }
+    } catch (e) {
+      console.warn("[Jobify] Custom combobox selection failed:", e);
+    }
+    return false;
+  }
+
+  // =========================================================================
+  // FIELD HIGHLIGHTER – Visual Inspector
+  // =========================================================================
+  function highlightFieldOnPage(fieldName) {
+    if (!fieldName) return;
+    const inputs = getAllInputs();
+    const target = inputs.find(el => (el.name || el.id || el.placeholder || "").includes(fieldName));
+    
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      const origOutline = target.style.outline;
+      const origShadow = target.style.boxShadow;
+      
+      target.style.outline = "3px solid #5b8cf7";
+      target.style.boxShadow = "0 0 12px rgba(91, 140, 247, 0.8)";
+      
+      setTimeout(() => {
+        target.style.outline = origOutline;
+        target.style.boxShadow = origShadow;
+      }, 2500);
+    }
+  }
+
+  // =========================================================================
+  // JOB DESCRIPTION & AI Q&A HELPER
+  // =========================================================================
+  function extractJobDescription() {
+    const containers = [
+      document.querySelector("main"),
+      document.querySelector("article"),
+      document.querySelector('[role="main"]'),
+      document.querySelector(".job-description"),
+      document.querySelector("#job-description"),
+      document.body
+    ];
+
+    for (const container of containers) {
+      if (container) {
+        const text = container.innerText || container.textContent || "";
+        if (text.length > 200) {
+          return text.substring(0, 3000);
+        }
+      }
+    }
+    return "";
+  }
+
+  async function handleAIQA(message, sendResponse) {
+    const { provider, apiKey, model, profile } = message;
+    const jdText = extractJobDescription();
+    const inputs = getAllInputs();
+    
+    // Find textareas or text inputs that look like Q&A / open questions
+    const qaFields = inputs.filter(el => {
+      const tag = el.tagName.toLowerCase();
+      const type = (el.getAttribute("type") || "text").toLowerCase();
+      const label = (el.labels?.[0]?.textContent || el.getAttribute("aria-label") || el.placeholder || el.name || el.id || "").toLowerCase();
+      
+      return tag === "textarea" || (tag === "input" && type === "text" && (
+        label.includes("why") || label.includes("cover letter") || label.includes("describe") ||
+        label.includes("tell us") || label.includes("experience") || label.includes("accomplishment")
+      ));
+    });
+
+    if (qaFields.length === 0) {
+      sendResponse({ success: false, error: "No open-ended Q&A fields or textareas found on page." });
+      return;
+    }
+
+    let successCount = 0;
+    for (const field of qaFields) {
+      const question = field.labels?.[0]?.textContent || field.getAttribute("aria-label") || field.placeholder || field.name || "Job Application Question";
+      
+      const prompt = `You are filling out a job application. Answer this specific application question accurately and persuasively.
+Job Description Context:
+${jdText}
+
+Applicant Profile Details:
+- Name: ${profile.firstName || ''} ${profile.lastName || ''}
+- Current Title: ${profile.currentTitle || ''}
+- Current Company: ${profile.currentCompany || ''}
+- Skills: ${profile.skills || ''}
+- Experience: ${profile.experience || ''} years
+
+Application Question: "${question}"
+
+Provide a concise, professional, direct answer (under 150 words):`;
+
+      try {
+        const aiRes = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({
+            action: "generateAIAnswers",
+            provider, apiKey, model, prompt
+          }, resolve);
+        });
+
+        if (aiRes && aiRes.success && aiRes.answer) {
+          setFieldValue(field, aiRes.answer);
+          successCount++;
+        }
+      } catch (e) {
+        console.error("[Jobify] AI Generation error:", e);
+      }
+    }
+
+    sendResponse({ success: successCount > 0, count: successCount });
+  }
+
+  // =========================================================================
+  // DYNAMIC FORM MUTATION OBSERVER
+  // =========================================================================
+  function setupMutationObserver() {
+    let debounceTimer;
+    const observer = new MutationObserver(() => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        // Re-scan inputs dynamically added to DOM
+      }, 500);
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+  setupMutationObserver();
+
+  // =========================================================================
   // MESSAGE HANDLER – Responds to popup commands
   // =========================================================================
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -1257,8 +1412,6 @@
       let filledCount = 0;
       const details = [];
 
-
-
       for (const input of inputs) {
         const profileKey = detectField(input);
         if (profileKey) {
@@ -1267,7 +1420,6 @@
             const success = setFieldValue(input, value);
             if (success) {
               filledCount++;
-              // Highlight filled field briefly
               const originalBg = input.style.backgroundColor;
               input.style.backgroundColor = "#d4f5d4";
               input.style.transition = "background-color 0.3s";
@@ -1280,18 +1432,12 @@
         }
       }
 
-
-
       sendResponse({ success: true, filled: filledCount, total: inputs.length, details });
     }
-
-
 
     if (message.action === "scanForm") {
       const inputs = getAllInputs();
       const fields = [];
-
-
 
       for (const input of inputs) {
         const profileKey = detectField(input);
@@ -1305,19 +1451,30 @@
         });
       }
 
-
-
       sendResponse({ fields, total: inputs.length });
     }
 
+    if (message.action === "highlightField") {
+      highlightFieldOnPage(message.fieldName);
+      sendResponse({ success: true });
+    }
 
+    if (message.action === "inspectActiveElement") {
+      if (document.activeElement) {
+        highlightFieldOnPage(document.activeElement.name || document.activeElement.id);
+      }
+      sendResponse({ success: true });
+    }
+
+    if (message.action === "generateAndFillQA") {
+      handleAIQA(message, sendResponse);
+      return true;
+    }
 
     return true;
   });
 
-
-
   // Log that content script is ready
-  console.log("[JobFill] Content script loaded and ready.");
+  console.log("[Jobify] Content script v2.0 loaded and ready.");
 })();
  

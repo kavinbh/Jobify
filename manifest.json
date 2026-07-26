@@ -3,13 +3,25 @@
   "name": "Jobify - Auto-Fill Job Applications",
   "version": "1.0.0",
   "description": "Fill job applications faster with a local-only profile stored in your browser.",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "permissions": ["storage", "activeTab", "scripting", "sidePanel", "contextMenus"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
       "16": "Jobify_Logo_Favicon_Pack/icon16.png",
       "48": "Jobify_Logo_Favicon_Pack/icon48.png",
       "128": "Jobify_Logo_Favicon_Pack/icon128.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "popup.html"
+  },
+  "commands": {
+    "autofill-page": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+F",
+        "mac": "Command+Shift+F"
+      },
+      "description": "Auto-Fill current page with Jobify profile"
     }
   },
   "icons": {
